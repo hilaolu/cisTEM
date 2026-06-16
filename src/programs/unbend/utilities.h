@@ -761,3 +761,48 @@ void patch_trimming_single_location_from_resized_stack(Image* input_stack, Image
         }
     }
 };
+
+void Generate_CoeffSplineForPatch(bicubicsplinestack& ccmap_stack, Image* patch_stack, float unitless_bfactor, int patch_index, int image_no, bool write_out_the_ccmap, std::string output_path, std::string file_pref) {
+    int   quater_patch_dim = ccmap_stack.m;
+    int   patch_dim        = patch_stack[0].logical_x_dimension;
+    Image sum_of_images, sum_of_images_minus_current, tmpimg, img_bfactor;
+
+    tmpimg.Allocate(quater_patch_dim, quater_patch_dim, false);
+    sum_of_images.Allocate(patch_dim, patch_dim, false);
+    sum_of_images.SetToConstant(0.0);
+
+    for ( int image_counter = 0; image_counter < image_no; image_counter++ ) {
+        img_bfactor.CopyFrom(&patch_stack[image_counter]);
+        img_bfactor.ApplyBFactor(unitless_bfactor);
+        sum_of_images.AddImage(&img_bfactor);
+    }
+
+    for ( int image_counter = 0; image_counter < image_no; image_counter++ ) {
+        sum_of_images_minus_current.CopyFrom(&sum_of_images);
+        img_bfactor.CopyFrom(&patch_stack[image_counter]);
+        img_bfactor.ApplyBFactor(unitless_bfactor);
+        sum_of_images_minus_current.SubtractImage(&img_bfactor);
+        sum_of_images_minus_current.CalculateCrossCorrelationImageWith(&img_bfactor);
+
+        if ( write_out_the_ccmap ) {
+            sum_of_images_minus_current.QuickAndDirtyWriteSlice(wxString::Format("%s%s_%02i.mrc", output_path, file_pref, patch_index).ToStdString( ), image_counter + 1);
+        }
+        sum_of_images_minus_current.ClipInto(&tmpimg, 0);
+        if ( write_out_the_ccmap ) {
+            tmpimg.QuickAndDirtyWriteSlice(wxString::Format("%s%s_%02icroped.mrc", output_path, file_pref, patch_index).ToStdString( ), image_counter + 1);
+        }
+
+        int pixel_counter = 0;
+        int spline_ind    = patch_index * image_no + image_counter;
+        ccmap_stack.spline_stack[spline_ind].z_on_knot.set_size(quater_patch_dim * quater_patch_dim, 1);
+
+        for ( int ii = 0; ii < quater_patch_dim; ii++ ) {
+            for ( int jj = 0; jj < quater_patch_dim; jj++ ) {
+                ccmap_stack.spline_stack[spline_ind].z_on_knot(ii * quater_patch_dim + jj) = tmpimg.real_values[pixel_counter];
+                pixel_counter++;
+            }
+            pixel_counter += tmpimg.padding_jump_value;
+        }
+        ccmap_stack.UpdateSingleSpline(spline_ind);
+    }
+};

@@ -563,6 +563,7 @@ double minfunc3dSplineCCLossObjectControlPoints(matrix<double> control_1d) {
 
 void Spline_Fitting(column_vector& Control_1d_search, double deriv_eps, double f_min, unsigned long max_iter, double stop_cri_scale, double knot_on_x, double knot_on_y, double knot_on_z, double knot_x_dis, double knot_y_dis, double search_sample_dose, wxString outputpath);
 void Spline_Shift_Implement(Image** patch_stack, int patch_num_x, int patch_num_y, int number_of_input_images, int max_threads);
+void Spline_Shift_Implement_For_Patch(Image* patch_stack, int patch_index, int patch_num_x, int number_of_input_images, int max_threads);
 void Spline_LossRefine(column_vector& Control1d_ccmap, double deriv_eps, double f_min, unsigned long max_iter, double stop_cri_scale, double knot_on_x, double knot_on_y, double knot_on_z, double knot_x_dis, double knot_y_dis, double search_sample_dose, wxString outputpath);
 
 void apply_fitting_quadratic_sup(Image* super_res_stack, float output_binning_factor, int number_of_images, param_vector_quadratic params_x, param_vector_quadratic params_y, int max_threads);
@@ -1573,13 +1574,6 @@ bool UnBendApp::DoCalculation( ) {
                 double knot_on_y_end;
                 bool   fine_search = false;
 
-                Image** patch_stack = new Image*[patch_num];
-                for ( int i = 0; i < patch_num; i++ ) {
-                    patch_stack[i] = new Image[number_of_input_images];
-                }
-
-                patch_trimming_basedon_locations_from_resized_stack(raw_image_stack, patch_stack, number_of_input_images, patch_num_x, patch_num_y, image_stack[0].logical_x_dimension, image_stack[0].logical_y_dimension, output_stack_box_size, outputpath.ToStdString( ), "patch_pix", max_threads, false, false, patch_locations);
-
                 // /*
                 ccmap_stack.InitializeSplineStack(quater_patch_dim, quater_patch_dim, patch_num * number_of_input_images, 1, 1);
 
@@ -1599,14 +1593,19 @@ bool UnBendApp::DoCalculation( ) {
 
                 unblur_timing.start("Initial Model Fitting");
                 Spline_Fitting(Control1d, deriv_eps, f_min, max_iter_splinefit, stop_cri_scale, knot_on_x, knot_on_y, knot_on_z, knot_x_dis, knot_y_dis, sample_dose, outputpath);
-                Spline_Shift_Implement(patch_stack, patch_num_x, patch_num_y, number_of_input_images, max_threads);
                 write_shifts(patch_num_x, patch_num_y, number_of_input_images, outputpath.ToStdString( ), "_shiftx_R0", "_shifty_R0");
                 unblur_timing.lap("Initial Model Fitting");
 
                 wxPrintf("Loss Refine\n");
 
                 unblur_timing.start("Loss Refine Preparation");
-                Generate_CoeffSpline(ccmap_stack, patch_stack, coeffspline_unitless_bfactor, patch_num, number_of_input_images, max_threads, false, outputpath.ToStdString( ), "CCMapBfactor_R1");
+                for ( int patch_counter = 0; patch_counter < patch_num; patch_counter++ ) {
+                    Image* patch_stack = new Image[number_of_input_images];
+                    patch_trimming_single_location_from_resized_stack(raw_image_stack, patch_stack, number_of_input_images, image_stack[0].logical_x_dimension, image_stack[0].logical_y_dimension, output_stack_box_size, max_threads, false, patch_locations[patch_counter]);
+                    Spline_Shift_Implement_For_Patch(patch_stack, patch_counter, patch_num_x, number_of_input_images, max_threads);
+                    Generate_CoeffSplineForPatch(ccmap_stack, patch_stack, coeffspline_unitless_bfactor, patch_counter, number_of_input_images, false, outputpath.ToStdString( ), "CCMapBfactor_R1");
+                    delete[] patch_stack;
+                }
                 unblur_timing.lap("Loss Refine Preparation");
                 wxPrintf("Refine\n");
 
@@ -1629,11 +1628,6 @@ bool UnBendApp::DoCalculation( ) {
                 std::cout << refined_error << endl;
                 std::cout << refined_error_ccmap << endl;
                 // }
-                for ( int i = 0; i < patch_num; ++i ) {
-                    delete[] patch_stack[i]; // each i-th pointer must be deleted first
-                }
-                delete[] patch_stack; // now delete pointer array
-                patch_stack = NULL;
                 if ( ! raw_image_stack[0].is_in_real_space ) {
 #pragma omp parallel for default(shared) num_threads(max_threads)
                     for ( int image_counter = 0; image_counter < number_of_input_images; image_counter++ ) {
@@ -2117,6 +2111,16 @@ void Spline_Shift_Implement(Image** patch_stack, int patch_num_x, int patch_num_
                 patch_stack[patch_ind][image_ind].PhaseShift(Spline3dx.smooth_interp[image_ind](i, j), Spline3dy.smooth_interp[image_ind](i, j), 0.0);
             }
         }
+    }
+};
+
+void Spline_Shift_Implement_For_Patch(Image* patch_stack, int patch_index, int patch_num_x, int number_of_input_images, int max_threads) {
+    int patch_y_ind = patch_index / patch_num_x;
+    int patch_x_ind = patch_index % patch_num_x;
+
+#pragma omp parallel for default(shared) num_threads(max_threads)
+    for ( int image_ind = 0; image_ind < number_of_input_images; image_ind++ ) {
+        patch_stack[image_ind].PhaseShift(Spline3dx.smooth_interp[image_ind](patch_y_ind, patch_x_ind), Spline3dy.smooth_interp[image_ind](patch_y_ind, patch_x_ind), 0.0);
     }
 };
 
