@@ -959,12 +959,6 @@ bool UnBendApp::DoCalculation( ) {
     if ( patch_track ) {
         raw_image_stack = new Image[number_of_input_images];
     }
-    Image* counting_image_stack;
-
-    if ( patch_track ) {
-        counting_image_stack = new Image[number_of_input_images];
-    }
-
     Image gain_image;
     Image dark_image;
 
@@ -1294,12 +1288,7 @@ bool UnBendApp::DoCalculation( ) {
 
             unblur_timing.start("Trimming Patches");
             // use stack with no dose filter for patch trimming, image_stack is already dose filtered in round 0
-            for ( int image_ind = 0; image_ind < number_of_input_images; image_ind++ ) {
-                counting_image_stack[image_ind].Allocate(raw_image_stack[image_ind].logical_x_dimension, raw_image_stack[image_ind].logical_y_dimension, 1, false);
-                counting_image_stack[image_ind].CopyFrom(&raw_image_stack[image_ind]);
-                counting_image_stack[image_ind].Resize(image_stack[image_ind].logical_x_dimension, image_stack[image_ind].logical_y_dimension, 1, 0);
-            }
-            patch_trimming_basedon_locations(counting_image_stack, patch_stack, number_of_input_images, patch_num_x, patch_num_y, output_stack_box_size, outputpath.ToStdString( ), "patch", max_threads, true, false, patch_locations);
+            patch_trimming_basedon_locations_from_resized_stack(raw_image_stack, patch_stack, number_of_input_images, patch_num_x, patch_num_y, image_stack[0].logical_x_dimension, image_stack[0].logical_y_dimension, output_stack_box_size, outputpath.ToStdString( ), "patch", max_threads, true, false, patch_locations);
 
             if ( image_stack[0].is_in_real_space ) {
                 wxPrintf("after trimming image stack is in real spaced\n");
@@ -1597,7 +1586,7 @@ bool UnBendApp::DoCalculation( ) {
                     patch_stack[i] = new Image[number_of_input_images];
                 }
 
-                patch_trimming_basedon_locations(counting_image_stack, patch_stack, number_of_input_images, patch_num_x, patch_num_y, output_stack_box_size, outputpath.ToStdString( ), "patch_pix", max_threads, false, false, patch_locations);
+                patch_trimming_basedon_locations_from_resized_stack(raw_image_stack, patch_stack, number_of_input_images, patch_num_x, patch_num_y, image_stack[0].logical_x_dimension, image_stack[0].logical_y_dimension, output_stack_box_size, outputpath.ToStdString( ), "patch_pix", max_threads, false, false, patch_locations);
 
                 // /*
                 ccmap_stack.InitializeSplineStack(quater_patch_dim, quater_patch_dim, patch_num * number_of_input_images, 1, 1);
@@ -1653,7 +1642,6 @@ bool UnBendApp::DoCalculation( ) {
                 }
                 delete[] patch_stack; // now delete pointer array
                 patch_stack = NULL;
-                delete[] counting_image_stack;
                 if ( ! raw_image_stack[0].is_in_real_space ) {
 #pragma omp parallel for default(shared) num_threads(max_threads)
                     for ( int image_counter = 0; image_counter < number_of_input_images; image_counter++ ) {

@@ -386,7 +386,7 @@ float CalculateDiffSquare(Image** patch_stack, int patch_no, int image_no, bool 
     return total_Sum;
 };
 
-void Generate_CoeffSpline(bicubicsplinestack ccmap_stack, Image** patch_stack, float unitless_bfactor, int patch_no, int image_no, int max_thread, bool write_out_the_ccmap, std::string output_path, std::string file_pref) {
+void Generate_CoeffSpline(bicubicsplinestack& ccmap_stack, Image** patch_stack, float unitless_bfactor, int patch_no, int image_no, int max_thread, bool write_out_the_ccmap, std::string output_path, std::string file_pref) {
     // void Generate_CoeffSpline(Image** patch_stack, float unitless_bfactor, int patch_no, int image_no, bool write_out_the_ccmap, std::string output_path, std::string file_pref) {
 
     int   quater_patch_dim = ccmap_stack.m;
@@ -672,4 +672,55 @@ void patch_trimming_basedon_locations(Image* input_stack, Image** patch_stack, i
     // delete[] input_stack_real_space;
     wxPrintf("Done Patch Trimming\n");
     // return patch_stack;
+};
+
+void patch_trimming_basedon_locations_from_resized_stack(Image* input_stack, Image** patch_stack, int number_of_images, int patch_num_x, int patch_num_y, int target_x_size, int target_y_size, int output_stack_box_size, std::string, std::string, int max_threads, bool mean_padding, bool write_trimmed_files, float** patch_locations) {
+    if ( write_trimmed_files ) {
+        wxPrintf("Internal error: patch_trimming_basedon_locations_from_resized_stack does not support writing trimmed files\n");
+        exit(-1);
+    }
+
+    int  number_of_patchgroups       = patch_num_x * patch_num_y;
+    bool input_stack_is_in_real_space = input_stack[0].is_in_real_space;
+
+    wxPrintf("number of patch groups: %i\n\n", number_of_patchgroups);
+
+#pragma omp parallel for default(shared) num_threads(max_threads)
+    for ( int image_counter = 0; image_counter < number_of_images; image_counter++ ) {
+        Image resized_image;
+        resized_image.CopyFrom(&input_stack[image_counter]);
+        if ( resized_image.logical_x_dimension != target_x_size || resized_image.logical_y_dimension != target_y_size ) {
+            resized_image.Resize(target_x_size, target_y_size, 1, 0);
+        }
+        if ( ! input_stack_is_in_real_space ) {
+            resized_image.BackwardFFT( );
+        }
+
+        float image_mean = 0.0;
+        if ( mean_padding ) {
+            image_mean = resized_image.ReturnAverageOfRealValues( );
+        }
+
+        for ( int patch_counter = 0; patch_counter < number_of_patchgroups; patch_counter++ ) {
+            float my_x = patch_locations[patch_counter][0] - target_x_size / 2.0;
+            float my_y = patch_locations[patch_counter][1] - target_y_size / 2.0;
+
+            patch_stack[patch_counter][image_counter].Allocate(output_stack_box_size, output_stack_box_size, 1, true);
+            resized_image.ClipInto(&patch_stack[patch_counter][image_counter], image_mean, false, 1.0, int(my_x), int(my_y), 0);
+        }
+
+        resized_image.Deallocate( );
+    }
+
+    if ( ! input_stack_is_in_real_space ) {
+#pragma omp parallel for default(shared) num_threads(max_threads)
+        for ( int patch_ind = 0; patch_ind < number_of_patchgroups; patch_ind++ ) {
+            for ( int image_ind = 0; image_ind < number_of_images; image_ind++ ) {
+                patch_stack[patch_ind][image_ind].ForwardFFT(true);
+                patch_stack[patch_ind][image_ind].ZeroCentralPixel( );
+            }
+        }
+    }
+
+    wxPrintf("Done Patch Trimming\n");
 };
