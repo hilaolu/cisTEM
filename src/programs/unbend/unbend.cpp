@@ -1227,11 +1227,6 @@ bool UnBendApp::DoCalculation( ) {
 
             int patch_num = patch_num_x * patch_num_y;
 
-            // Image** unbinned_patch_stack;
-            Image** patch_stack = new Image*[patch_num];
-            for ( int i = 0; i < patch_num; i++ ) {
-                patch_stack[i] = new Image[number_of_input_images];
-            }
             float **patch_shift_x, **patch_shift_y;
             Allocate2DFloatArray(patch_shift_x, patch_num, int(number_of_input_images));
             Allocate2DFloatArray(patch_shift_y, patch_num, int(number_of_input_images));
@@ -1286,22 +1281,22 @@ bool UnBendApp::DoCalculation( ) {
                 }
             }
 
-            unblur_timing.start("Trimming Patches");
-            // use stack with no dose filter for patch trimming, image_stack is already dose filtered in round 0
-            patch_trimming_basedon_locations_from_resized_stack(raw_image_stack, patch_stack, number_of_input_images, patch_num_x, patch_num_y, image_stack[0].logical_x_dimension, image_stack[0].logical_y_dimension, output_stack_box_size, outputpath.ToStdString( ), "patch", max_threads, true, false, patch_locations);
-
             if ( image_stack[0].is_in_real_space ) {
                 wxPrintf("after trimming image stack is in real spaced\n");
             }
-            unblur_timing.lap("Trimming Patches");
 
             // /*
             unblur_timing.start("Patch Alignment");
-            unblur_refine_alignment_object patch_object;
             for ( int patch_counter = 0; patch_counter < patch_num; patch_counter++ ) {
                 // wxPrintf("aligning patch %d\n", patch_counter);
 
-                patch_object.Initialize(patch_stack[patch_counter], number_of_input_images, max_iterations, unitless_bfactor, should_mask_central_cross, vertical_mask_size, horizontal_mask_size, 0, max_shift_in_pixels, termination_threshold_in_pixels, pixel_size, 5, 3, max_threads, patch_shift_x[patch_counter], patch_shift_y[patch_counter], false);
+                unblur_timing.start("Trimming Patches");
+                Image* patch_stack = new Image[number_of_input_images];
+                patch_trimming_single_location_from_resized_stack(raw_image_stack, patch_stack, number_of_input_images, image_stack[0].logical_x_dimension, image_stack[0].logical_y_dimension, output_stack_box_size, max_threads, true, patch_locations[patch_counter]);
+                unblur_timing.lap("Trimming Patches");
+
+                unblur_refine_alignment_object patch_object;
+                patch_object.Initialize(patch_stack, number_of_input_images, max_iterations, unitless_bfactor, should_mask_central_cross, vertical_mask_size, horizontal_mask_size, 0, max_shift_in_pixels, termination_threshold_in_pixels, pixel_size, 5, 3, max_threads, patch_shift_x[patch_counter], patch_shift_y[patch_counter], false);
                 // patch_object.alignment_refine(false);
                 patch_object.alignment_refine(true);
 
@@ -1320,14 +1315,11 @@ bool UnBendApp::DoCalculation( ) {
                     }
                 }
                 xoFile.close( );
+
+                delete[] patch_stack;
             }
             unblur_timing.lap("Patch Alignment");
             // */
-            for ( int i = 0; i < patch_num; ++i ) {
-                delete[] patch_stack[i]; // each i-th pointer must be deleted first
-            }
-            delete[] patch_stack; // now delete pointer array
-            patch_stack = nullptr;
 
             wxPrintf("modeling the distortion \n");
 
@@ -1581,7 +1573,7 @@ bool UnBendApp::DoCalculation( ) {
                 double knot_on_y_end;
                 bool   fine_search = false;
 
-                patch_stack = new Image*[patch_num];
+                Image** patch_stack = new Image*[patch_num];
                 for ( int i = 0; i < patch_num; i++ ) {
                     patch_stack[i] = new Image[number_of_input_images];
                 }

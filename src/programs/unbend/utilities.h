@@ -724,3 +724,40 @@ void patch_trimming_basedon_locations_from_resized_stack(Image* input_stack, Ima
 
     wxPrintf("Done Patch Trimming\n");
 };
+
+void patch_trimming_single_location_from_resized_stack(Image* input_stack, Image* patch_stack, int number_of_images, int target_x_size, int target_y_size, int output_stack_box_size, int max_threads, bool mean_padding, float* patch_location) {
+
+    bool input_stack_is_in_real_space = input_stack[0].is_in_real_space;
+
+#pragma omp parallel for default(shared) num_threads(max_threads)
+    for ( int image_counter = 0; image_counter < number_of_images; image_counter++ ) {
+        Image resized_image;
+        resized_image.CopyFrom(&input_stack[image_counter]);
+        if ( resized_image.logical_x_dimension != target_x_size || resized_image.logical_y_dimension != target_y_size ) {
+            resized_image.Resize(target_x_size, target_y_size, 1, 0);
+        }
+        if ( ! input_stack_is_in_real_space ) {
+            resized_image.BackwardFFT( );
+        }
+
+        float image_mean = 0.0;
+        if ( mean_padding ) {
+            image_mean = resized_image.ReturnAverageOfRealValues( );
+        }
+
+        float my_x = patch_location[0] - target_x_size / 2.0;
+        float my_y = patch_location[1] - target_y_size / 2.0;
+
+        patch_stack[image_counter].Allocate(output_stack_box_size, output_stack_box_size, 1, true);
+        resized_image.ClipInto(&patch_stack[image_counter], image_mean, false, 1.0, int(my_x), int(my_y), 0);
+        resized_image.Deallocate( );
+    }
+
+    if ( ! input_stack_is_in_real_space ) {
+#pragma omp parallel for default(shared) num_threads(max_threads)
+        for ( int image_ind = 0; image_ind < number_of_images; image_ind++ ) {
+            patch_stack[image_ind].ForwardFFT(true);
+            patch_stack[image_ind].ZeroCentralPixel( );
+        }
+    }
+};
